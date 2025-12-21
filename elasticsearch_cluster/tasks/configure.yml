@@ -1,0 +1,117 @@
+---
+- name: Ensure Ansible facts are available
+  setup:
+  when: ansible_memtotal_mb is not defined
+
+- name: Compute JVM heap and discovery seeds
+  set_fact:
+    es_recommended_jvm_mb: "{{ [(ansible_memtotal_mb / 2) | int, es_max_jvm_mb] | min }}"
+    es_seed_hosts: "{{ groups['es_master'] }}"
+
+- name: Ensure Elasticsearch config directories exist
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - /etc/elasticsearch
+    - /etc/elasticsearch/jvm.options.d
+
+# =========================
+# BOOTSTRAP MASTER
+# =========================
+- name: Configure bootstrap master
+  when: es_node_type == 'bootstrap'
+  block:
+    - name: Render JVM options
+      template:
+        src: jvm_heap.options.j2
+        dest: /etc/elasticsearch/jvm.options.d/heap.options
+        mode: "0644"
+
+    - name: Render elasticsearch.yml
+      template:
+        src: elasticsearch.yml.j2
+        dest: /etc/elasticsearch/elasticsearch.yml
+        mode: "0644"
+      vars:
+        node_roles: ["master"]
+        seed_hosts: "{{ groups['es_master'] }}"
+        include_initial_master: true
+        initial_master_nodes: "{{ groups['es_master'] }}"
+      notify: restart elasticsearch
+
+# =========================
+# MASTER-ONLY NODES
+# =========================
+- name: Configure master nodes
+  when: es_node_type == 'master'
+  block:
+    - name: Render JVM options
+      template:
+        src: jvm_heap.options.j2
+        dest: /etc/elasticsearch/jvm.options.d/heap.options
+        mode: "0644"
+
+    - name: Render elasticsearch.yml
+      template:
+        src: elasticsearch.yml.j2
+        dest: /etc/elasticsearch/elasticsearch.yml
+        mode: "0644"
+      vars:
+        node_roles: ["master"]
+        seed_hosts: "{{ groups['es_master'] }}"
+        include_initial_master: false
+      notify: restart elasticsearch
+
+# =========================
+# DATA NODES
+# =========================
+- name: Configure data nodes
+  when: es_node_type == 'data'
+  block:
+    - name: Render JVM options
+      template:
+        src: jvm_heap.options.j2
+        dest: /etc/elasticsearch/jvm.options.d/heap.options
+        mode: "0644"
+
+    - name: Fix ownership of ES data path after installation
+      file:
+        path: /var/lib/elasticsearch
+        owner: elasticsearch
+        group: elasticsearch
+        recurse: yes
+
+    - name: Render elasticsearch.yml
+      template:
+        src: elasticsearch.yml.j2
+        dest: /etc/elasticsearch/elasticsearch.yml
+        mode: "0644"
+      vars:
+        node_roles: ["data"]
+        seed_hosts: "{{ groups['es_master'] }}"
+        include_initial_master: false
+      notify: restart elasticsearch
+
+# =========================
+# Ownership + service
+# =========================
+- name: Ensure elasticsearch user owns paths
+  file:
+    path: "{{ item }}"
+    owner: elasticsearch
+    group: elasticsearch
+    recurse: yes
+  loop:
+    - "{{ es_mount_point }}"
+    - /var/log/elasticsearch
+  when: ansible_facts.getent_passwd.elasticsearch is defined
+
+- name: Enable and start Elasticsearch
+  systemd:
+    name: elasticsearch
+    enabled: yes
+    state: started

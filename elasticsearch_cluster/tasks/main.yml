@@ -1,0 +1,26 @@
+---
+# tasks/main.yml - include tasks in a logical order
+
+- name: Ensure /etc/hosts has inventory entries
+  include_tasks: update_hosts.yml
+  when: update_hosts | default(true)
+
+- name: Preflight checks (inventory / os / disks)
+  include_tasks: checks.yml
+  when: preflight_checks | default(false)
+
+- name: Prepare block devices and mountpoints (data nodes)
+  include_tasks: format_mount.yml
+  when: format_and_mount | default(false)
+
+- name: Add repositories and prerequisites (or copy .deb)
+  include_tasks: packages.yml
+  when: packages_stage | default(false)
+
+- name: Install elasticsearch (repo or local deb)
+  include_tasks: install.yml
+  when: install_es | default(false)
+
+- name: Configure node (render templates, owners, service)
+  include_tasks: configure.yml
+  when: es_node_type is defined

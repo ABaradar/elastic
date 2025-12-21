@@ -1,0 +1,22 @@
+cluster.name: "{{ es_cluster_name }}"
+node.name: "{{ inventory_hostname }}"
+
+node.roles: {{ node_roles | to_nice_json }}
+
+path.data: "{{ es_mount_point }}"
+path.logs: /var/log/elasticsearch
+
+network.host: 0.0.0.0
+http.port: {{ es_http_port }}
+
+{% if seed_hosts is defined and seed_hosts | length > 0 %}
+discovery.seed_hosts: {{ seed_hosts | to_nice_json }}
+{% endif %}
+
+{% if include_initial_master | default(false) %}
+cluster.initial_master_nodes: {{ initial_master_nodes | to_nice_json }}
+{% endif %}
+
+xpack.security.enabled: false
+xpack.security.transport.ssl.enabled: false
+xpack.security.http.ssl.enabled: false

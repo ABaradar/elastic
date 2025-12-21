@@ -1,0 +1,14 @@
+---
+# tasks/install.yml
+
+- name: Install elasticsearch from APT repo (by package name)
+  apt:
+    name: "elasticsearch={{ es_elasticsearch_version }}"
+    state: present
+  when: es_install_method == 'repo'
+
+- name: Install elasticsearch from local deb
+  apt:
+    deb: "/tmp/{{ es_deb_filename }}"
+    state: present
+  when: es_install_method == 'deb'

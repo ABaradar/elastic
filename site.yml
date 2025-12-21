@@ -1,0 +1,37 @@
+---
+- name: Base preparation
+  hosts: es_master:es_data
+  become: true
+  roles:
+    - role: elasticsearch_cluster
+      vars:
+        preflight_checks: true
+        format_and_mount: true
+        packages_stage: true
+
+- name: Bootstrap cluster
+  hosts: es-master-1
+  become: true
+  roles:
+    - role: elasticsearch_cluster
+      vars:
+        install_es: true
+        es_node_type: bootstrap
+
+- name: Master nodes
+  hosts: es_master:!es-master-1
+  become: true
+  roles:
+    - role: elasticsearch_cluster
+      vars:
+        install_es: true
+        es_node_type: master
+
+- name: Data nodes
+  hosts: es_data
+  become: true
+  roles:
+    - role: elasticsearch_cluster
+      vars:
+        install_es: true
+        es_node_type: data

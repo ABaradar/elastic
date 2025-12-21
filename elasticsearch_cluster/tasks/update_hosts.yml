@@ -1,0 +1,15 @@
+---
+# update_hosts.yml - ensure /etc/hosts contains inventory host entries so hosts can resolve each other
+- name: Build list of cluster hosts
+  set_fact:
+    _es_inventory_hosts: "{{ (groups['es_master'] | default([])) + (groups['es_data'] | default([])) | unique }}"
+
+- name: Ensure /etc/hosts contains inventory entries for ES cluster
+  blockinfile:
+    path: /etc/hosts
+    create: yes
+    marker: "# {mark} ANSIBLE ELASTICSEARCH INVENTORY"
+    block: |
+      {% for h in _es_inventory_hosts %}
+      {{ hostvars[h]['ansible_host'] | default(hostvars[h]['inventory_hostname']) }} {{ h }}
+      {% endfor %}

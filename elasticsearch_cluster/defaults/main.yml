@@ -1,0 +1,28 @@
+---
+# Role defaults
+es_cluster_name: "my-es-cluster"
+
+# install method: "repo" uses official APT repo; "deb" copies and installs a local .deb
+es_install_method: "repo"   # allowed: "repo", "deb"
+es_deb_filename: ""         # set only when es_install_method: "deb"
+
+es_http_port: 9200
+es_tmpdir: "/tmp"
+
+# Disk/mount settings
+es_data_disk: "/dev/sdb"
+es_mount_point: "/var/lib/elasticsearch"
+es_filesystem: "xfs"
+es_format_disks: true
+
+# Elastic package / repo (used when es_install_method == "repo")
+es_elasticsearch_version: "9.2.2"
+es_repo_url: "https://artifacts.elastic.co/packages/9.x/apt"
+es_repo_list: "/etc/apt/sources.list.d/elastic-9.x.list"
+es_key_url: "https://artifacts.elastic.co/GPG-KEY-elasticsearch"
+elastic_keyring_path: "/usr/share/keyrings/elasticsearch-keyring.gpg"
+elastic_apt_repo: "deb [signed-by={{ elastic_keyring_path }}] {{ es_repo_url }} stable main"
+
+# JVM heap suggestion cap (MB)
+es_max_jvm_mb: 30720
+

@@ -1,0 +1,45 @@
+---
+# tasks/packages.yml
+- name: Install apt prerequisites
+  apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - gnupg
+      - wget
+    state: present
+    update_cache: yes
+
+- name: Download Elastic GPG key to temporary file
+  get_url:
+    url: "{{ es_key_url }}"
+    dest: "/tmp/elastic.gpg"
+    mode: "0644"
+  when: es_install_method == 'repo'
+
+- name: Create keyring file from downloaded key
+  command: >
+    gpg --dearmor -o {{ elastic_keyring_path }} /tmp/elastic.gpg
+  args:
+    creates: "{{ elastic_keyring_path }}"
+  when: es_install_method == 'repo'
+
+- name: Add Elastic APT repository (signed-by keyring)
+  apt_repository:
+    repo: "{{ elastic_apt_repo }}"
+    filename: elastic
+    state: present
+  when: es_install_method == 'repo'
+
+- name: apt update after adding Elastic repo
+  apt:
+    update_cache: yes
+  when: es_install_method == 'repo'
+
+# If using the local deb install method, copy the deb to /tmp on target hosts
+- name: Copy elasticsearch deb to /tmp on host from role files/
+  copy:
+    src: "{{ es_deb_filename }}"
+    dest: "/tmp/{{ es_deb_filename }}"
+    mode: '0644'
+  when: es_install_method == 'deb' and es_deb_filename != ""

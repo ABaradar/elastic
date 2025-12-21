@@ -1,0 +1,69 @@
+# === Ansible / general development ===
+# Ansible retry files
+*.retry
+
+# Vault / secrets (do NOT commit)
+.vault_pass.txt
+.vault_pass
+vault_password_file
+
+# Local environment / virtualenvs
+.env
+.venv/
+venv/
+.Python
+pip-log.txt
+
+# Editor / OS artifacts
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Vagrant / Molecule / test artifacts
+.vagrant/
+molecule/
+.molecule/
+testinfra/
+.tox/
+.cache/
+.pytest_cache/
+
+# Ansible cache / logs
+.ansible/
+ansible.log
+ansible.cfg.local
+
+# Role build artifacts
+build/
+dist/
+*.egg-info/
+
+# packer / image builder artifacts
+packer_cache/
+
+# Terraform (if used together)
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# === Binaries & Packages ===
+# Ignore all .deb files anywhere in the repository
+*.deb
+**/*.deb
+
+# (Optional) if you want to ignore all binary package directories
+packages/
+*.tar.gz
+*.zip
+*.tgz
+
+# === Optional: sensitive inventory / local inventory ===
+# Uncomment if you keep inventories local to the repo but want to avoid committing
+# inventory/hosts
+# inventory/group_vars/*
+# inventory/host_vars/*
+
+# === Local role files that should not be checked in ===
+# e.g. large local package placed in role's files/
+roles/*/files/*.deb

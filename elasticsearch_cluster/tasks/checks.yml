@@ -1,0 +1,30 @@
+---
+# checks.yml - inventory + OS + disk presence checks (idempotent)
+- name: "Require at least one ES master and one ES data host in inventory"
+  assert:
+    that:
+      - "'es_master' in groups and groups['es_master'] | length > 0"
+      - "'es_data' in groups and groups['es_data'] | length > 0"
+    fail_msg: "Inventory must contain at least one host in groups 'es_master' and 'es_data'."
+  run_once: true
+  delegate_to: localhost
+
+- name: "Ensure target OS is Debian or Ubuntu"
+  assert:
+    that:
+      - ansible_distribution in ['Debian', 'Ubuntu']
+    fail_msg: "Target host must be Debian or Ubuntu."
+
+# On data nodes: ensure configured disk path exists
+- name: "Stat configured data disk {{ es_data_disk }} (data node check)"
+  stat:
+    path: "{{ es_data_disk }}"
+  register: es_data_disk_stat
+  when: "'es_data' in group_names"
+
+- name: "Fail if configured data disk {{ es_data_disk }} missing on a data node"
+  assert:
+    that:
+      - es_data_disk_stat.stat.exists
+    fail_msg: "Configured disk {{ es_data_disk }} does not exist on this data node."
+  when: "'es_data' in group_names"

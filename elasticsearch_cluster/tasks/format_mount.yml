@@ -1,0 +1,87 @@
+---
+- block:
+  - name: "Skip formatting/mounting on non-data nodes"
+    debug:
+      msg: "Skipping disk formatting on non-data node"
+    when: "'es_data' not in group_names"
+
+  - name: "Stat device {{ es_data_disk }}"
+    stat:
+      path: "{{ es_data_disk }}"
+    register: device_stat
+
+  - name: "Fail early if device {{ es_data_disk }} is missing"
+    assert:
+      that:
+        - device_stat.stat.exists
+        - device_stat.stat.isblk
+      fail_msg: "{{ es_data_disk }} is missing or is not a block device."
+    when: device_stat is defined
+
+  # detect existing filesystem type (if any)
+  - name: "Detect existing filesystem type on {{ es_data_disk }}"
+    command: "blkid -s TYPE -o value {{ es_data_disk }}"
+    register: blkid_out
+    failed_when: false
+    changed_when: false
+
+  # detect current mount point (if any)
+  - name: "Detect current mountpoint for {{ es_data_disk }}"
+    command: "findmnt -n -o TARGET --source {{ es_data_disk }}"
+    register: findmnt_out
+    failed_when: false
+    changed_when: false
+
+  - name: "Decide: format needed?"
+    set_fact:
+      need_format: "{{ (blkid_out.stdout | default('')) == '' }}"
+      current_mountpoint: "{{ findmnt_out.stdout | default('') }}"
+
+  # Safety behaviour: If device is mounted somewhere else, fail (avoid data loss)
+  - name: "Fail if device is mounted to unexpected location"
+    assert:
+      that:
+        - "(current_mountpoint == '' ) or (current_mountpoint == es_mount_point)"
+      fail_msg: "Device {{ es_data_disk }} is mounted at {{ current_mountpoint }} (not {{ es_mount_point }}). Manual intervention required."
+    when: current_mountpoint != ''
+
+  # Format only when device has no filesystem
+  - name: "Create filesystem {{ es_filesystem }} on {{ es_data_disk }} when no filesystem present"
+    filesystem:
+      fstype: "{{ es_filesystem }}"
+      dev: "{{ es_data_disk }}"
+      force: yes
+    when:
+      - need_format | bool
+      - es_format_disks | bool
+
+  # Ensure mountpoint exists
+  - name: "Ensure mount point {{ es_mount_point }} exists"
+    file:
+      path: "{{ es_mount_point }}"
+      state: directory
+      owner: root
+      group: root
+      mode: '0755'
+
+  - name: "Get device UUID for {{ es_data_disk }}"
+    command: "blkid -s UUID -o value {{ es_data_disk }}"
+    register: device_uuid
+    changed_when: false
+    failed_when: device_uuid.rc != 0
+    when: "'es_data' in group_names and es_data_disk != ''"
+  
+  - name: "Mount {{ es_data_disk }} at {{ es_mount_point }} and add to fstab (by UUID)"
+    mount:
+      path: "{{ es_mount_point }}"
+      src: "UUID={{ device_uuid.stdout }}"
+      fstype: "{{ es_filesystem }}"
+      opts: "{{ es_mount_opts | default('defaults,noatime,nodiratime') }}"
+      state: mounted
+    when: "'es_data' in group_names and es_data_disk != ''"
+
+  # Confirm: list mount
+  - name: "Show mount for verification (debug)"
+    debug:
+      msg: "Device {{ es_data_disk }} mounted at {{ es_mount_point }} (fstype={{ blkid_out.stdout|default('unknown') }})"
+  when: "'es_data' in group_names"
