@@ -80,7 +80,7 @@
 
     - name: Fix ownership of ES data path after installation
       file:
-        path: /var/lib/elasticsearch
+        path: "{{ es_mount_point }}"
         owner: elasticsearch
         group: elasticsearch
         recurse: yes
