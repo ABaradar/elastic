@@ -1,0 +1,35 @@
+---
+# Test playbook for all-in-one topology on Vagrant VMs.
+# Run from the test/ directory:
+#   ansible-playbook site.yml
+#
+# Stages are split across plays so each stage can be re-run independently.
+# The deb install vars (es_install_method, es_deb_filename) come from hosts.ini [all:vars].
+
+- name: Base preparation
+  hosts: es_all_in_one
+  become: true
+  roles:
+    - role: elasticsearch_cluster
+      vars:
+        preflight_checks: true
+        format_and_mount: true
+        packages_stage: true
+
+- name: Bootstrap all-in-one cluster
+  hosts: "{{ groups['es_all_in_one'][0] }}"
+  become: true
+  roles:
+    - role: elasticsearch_cluster
+      vars:
+        install_es: true
+        es_node_type: bootstrap_all_in_one
+
+- name: All-in-one remaining nodes
+  hosts: "es_all_in_one:!{{ groups['es_all_in_one'][0] }}"
+  become: true
+  roles:
+    - role: elasticsearch_cluster
+      vars:
+        install_es: true
+        es_node_type: all_in_one

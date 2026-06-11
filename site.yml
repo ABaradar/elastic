@@ -1,4 +1,7 @@
 ---
+# ============================================================
+# Dedicated master + data topology  (es_master / es_data)
+# ============================================================
 - name: Base preparation
   hosts: es_master:es_data
   become: true
@@ -35,3 +38,35 @@
       vars:
         install_es: true
         es_node_type: data
+
+# ============================================================
+# All-in-one topology  (es_all_in_one)
+# Each node carries master + data roles.
+# ============================================================
+- name: Base preparation (all-in-one)
+  hosts: es_all_in_one
+  become: true
+  roles:
+    - role: elasticsearch_cluster
+      vars:
+        preflight_checks: true
+        format_and_mount: true
+        packages_stage: true
+
+- name: Bootstrap all-in-one cluster
+  hosts: "{{ groups['es_all_in_one'][0] | default([]) }}"
+  become: true
+  roles:
+    - role: elasticsearch_cluster
+      vars:
+        install_es: true
+        es_node_type: bootstrap_all_in_one
+
+- name: All-in-one remaining nodes
+  hosts: "es_all_in_one:!{{ groups['es_all_in_one'][0] | default('_none_') }}"
+  become: true
+  roles:
+    - role: elasticsearch_cluster
+      vars:
+        install_es: true
+        es_node_type: all_in_one

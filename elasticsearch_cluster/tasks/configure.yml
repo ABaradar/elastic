@@ -6,7 +6,7 @@
 - name: Compute JVM heap and discovery seeds
   set_fact:
     es_recommended_jvm_mb: "{{ [(ansible_memtotal_mb / 2) | int, es_max_jvm_mb] | min }}"
-    es_seed_hosts: "{{ groups['es_master'] }}"
+    es_seed_hosts: "{{ groups['es_master'] if 'es_master' in groups else groups['es_all_in_one'] }}"
 
 - name: Ensure Elasticsearch config directories exist
   file:
@@ -93,6 +93,67 @@
       vars:
         node_roles: ["data"]
         seed_hosts: "{{ groups['es_master'] }}"
+        include_initial_master: false
+      notify: restart elasticsearch
+
+# =========================
+# BOOTSTRAP ALL-IN-ONE
+# =========================
+- name: Configure bootstrap all-in-one node
+  when: es_node_type == 'bootstrap_all_in_one'
+  block:
+    - name: Render JVM options
+      template:
+        src: jvm_heap.options.j2
+        dest: /etc/elasticsearch/jvm.options.d/heap.options
+        mode: "0644"
+
+    - name: Fix ownership of ES data path
+      file:
+        path: "{{ es_mount_point }}"
+        owner: elasticsearch
+        group: elasticsearch
+        recurse: yes
+
+    - name: Render elasticsearch.yml
+      template:
+        src: elasticsearch.yml.j2
+        dest: /etc/elasticsearch/elasticsearch.yml
+        mode: "0644"
+      vars:
+        node_roles: ["master", "data"]
+        seed_hosts: "{{ groups['es_all_in_one'] }}"
+        include_initial_master: true
+        initial_master_nodes: "{{ groups['es_all_in_one'] }}"
+      notify: restart elasticsearch
+
+# =========================
+# ALL-IN-ONE NODES
+# =========================
+- name: Configure all-in-one nodes
+  when: es_node_type == 'all_in_one'
+  block:
+    - name: Render JVM options
+      template:
+        src: jvm_heap.options.j2
+        dest: /etc/elasticsearch/jvm.options.d/heap.options
+        mode: "0644"
+
+    - name: Fix ownership of ES data path
+      file:
+        path: "{{ es_mount_point }}"
+        owner: elasticsearch
+        group: elasticsearch
+        recurse: yes
+
+    - name: Render elasticsearch.yml
+      template:
+        src: elasticsearch.yml.j2
+        dest: /etc/elasticsearch/elasticsearch.yml
+        mode: "0644"
+      vars:
+        node_roles: ["master", "data"]
+        seed_hosts: "{{ groups['es_all_in_one'] }}"
         include_initial_master: false
       notify: restart elasticsearch
 

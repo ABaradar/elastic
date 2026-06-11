@@ -9,6 +9,11 @@ es_deb_filename: ""         # set only when es_install_method: "deb"
 es_http_port: 9200
 es_tmpdir: "/tmp"
 
+# IP or special value (_site_, _local_, 0.0.0.0) for network.host in elasticsearch.yml.
+# Defaults to ansible_host so each node binds to and publishes the correct IP,
+# which is essential on multi-interface hosts (e.g. Vagrant VMs with a NAT adapter).
+es_network_host: "{{ ansible_host | default('0.0.0.0') }}"
+
 # Disk/mount settings
 es_data_disk: "/dev/sdb"
 es_mount_point: "/var/lib/elasticsearch"

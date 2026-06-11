@@ -6,7 +6,7 @@ node.roles: {{ node_roles | to_nice_json }}
 path.data: "{{ es_mount_point }}"
 path.logs: /var/log/elasticsearch
 
-network.host: 0.0.0.0
+network.host: {{ es_network_host }}
 http.port: {{ es_http_port }}
 
 {% if seed_hosts is defined and seed_hosts | length > 0 %}

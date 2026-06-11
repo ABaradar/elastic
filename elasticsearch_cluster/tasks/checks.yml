@@ -1,11 +1,14 @@
 ---
 # checks.yml - inventory + OS + disk presence checks (idempotent)
-- name: "Require at least one ES master and one ES data host in inventory"
+- name: "Require (es_master + es_data) OR es_all_in_one in inventory"
   assert:
     that:
-      - "'es_master' in groups and groups['es_master'] | length > 0"
-      - "'es_data' in groups and groups['es_data'] | length > 0"
-    fail_msg: "Inventory must contain at least one host in groups 'es_master' and 'es_data'."
+      - >
+        ('es_all_in_one' in groups and groups['es_all_in_one'] | length > 0)
+        or
+        ('es_master' in groups and groups['es_master'] | length > 0
+         and 'es_data' in groups and groups['es_data'] | length > 0)
+    fail_msg: "Inventory must contain either [es_all_in_one] or both [es_master] and [es_data]."
   run_once: true
   delegate_to: localhost
 
@@ -20,11 +23,11 @@
   stat:
     path: "{{ es_data_disk }}"
   register: es_data_disk_stat
-  when: "'es_data' in group_names"
+  when: "'es_data' in group_names or 'es_all_in_one' in group_names"
 
 - name: "Fail if configured data disk {{ es_data_disk }} missing on a data node"
   assert:
     that:
       - es_data_disk_stat.stat.exists
     fail_msg: "Configured disk {{ es_data_disk }} does not exist on this data node."
-  when: "'es_data' in group_names"
+  when: "'es_data' in group_names or 'es_all_in_one' in group_names"

@@ -1,0 +1,49 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+require 'fileutils'
+
+NODES = [
+  { name: "es-node-1", ip: "192.168.56.211" },
+  { name: "es-node-2", ip: "192.168.56.212" },
+  { name: "es-node-3", ip: "192.168.56.213" },
+].freeze
+
+Vagrant.configure("2") do |config|
+  config.vm.box            = "bento/ubuntu-24.04"
+  config.vm.box_check_update = false
+
+  NODES.each do |node|
+    config.vm.define node[:name] do |machine|
+      machine.vm.hostname = node[:name]
+      machine.vm.network "private_network", ip: node[:ip]
+
+      disk_dir  = File.join(__dir__, ".vagrant", "disks")
+      disk_path = File.join(disk_dir, "#{node[:name]}_data.vdi")
+
+      machine.vm.provider "virtualbox" do |vb|
+        vb.name   = node[:name]
+        vb.memory = 4096
+        vb.cpus   = 2
+
+        FileUtils.mkdir_p(disk_dir)
+        unless File.exist?(disk_path)
+          vb.customize ["createhd", "--filename", disk_path, "--size", 20480]
+        end
+
+        # Attaches the data disk on the SATA controller at port 1 -> /dev/sdb in guest.
+        # If vagrant up fails saying the controller was not found, run:
+        #   VBoxManage showvminfo <vm-name> | grep "Storage Controller"
+        # and update --storagectl to the name shown.
+        vb.customize [
+          "storageattach", :id,
+          "--storagectl", "SATA Controller",
+          "--port",        1,
+          "--device",      0,
+          "--type",        "hdd",
+          "--medium",      disk_path,
+        ]
+      end
+    end
+  end
+end

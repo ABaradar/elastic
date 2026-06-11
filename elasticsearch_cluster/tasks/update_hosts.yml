@@ -2,7 +2,13 @@
 # update_hosts.yml - ensure /etc/hosts contains inventory host entries so hosts can resolve each other
 - name: Build list of cluster hosts
   set_fact:
-    _es_inventory_hosts: "{{ (groups['es_master'] | default([])) + (groups['es_data'] | default([])) | unique }}"
+    _es_inventory_hosts: >-
+      {{
+        (groups['es_master'] | default([]))
+        + (groups['es_data'] | default([]))
+        + (groups['es_all_in_one'] | default([]))
+        | unique
+      }}
 
 - name: Ensure /etc/hosts contains inventory entries for ES cluster
   blockinfile:

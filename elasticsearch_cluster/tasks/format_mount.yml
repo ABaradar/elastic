@@ -3,7 +3,7 @@
   - name: "Skip formatting/mounting on non-data nodes"
     debug:
       msg: "Skipping disk formatting on non-data node"
-    when: "'es_data' not in group_names"
+    when: "'es_data' not in group_names and 'es_all_in_one' not in group_names"
 
   - name: "Stat device {{ es_data_disk }}"
     stat:
@@ -69,8 +69,8 @@
     register: device_uuid
     changed_when: false
     failed_when: device_uuid.rc != 0
-    when: "'es_data' in group_names and es_data_disk != ''"
-  
+    when: "('es_data' in group_names or 'es_all_in_one' in group_names) and es_data_disk != ''"
+
   - name: "Mount {{ es_data_disk }} at {{ es_mount_point }} and add to fstab (by UUID)"
     mount:
       path: "{{ es_mount_point }}"
@@ -78,10 +78,10 @@
       fstype: "{{ es_filesystem }}"
       opts: "{{ es_mount_opts | default('defaults,noatime,nodiratime') }}"
       state: mounted
-    when: "'es_data' in group_names and es_data_disk != ''"
+    when: "('es_data' in group_names or 'es_all_in_one' in group_names) and es_data_disk != ''"
 
   # Confirm: list mount
   - name: "Show mount for verification (debug)"
     debug:
       msg: "Device {{ es_data_disk }} mounted at {{ es_mount_point }} (fstype={{ blkid_out.stdout|default('unknown') }})"
-  when: "'es_data' in group_names"
+  when: "'es_data' in group_names or 'es_all_in_one' in group_names"
