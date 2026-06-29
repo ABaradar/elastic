@@ -23,7 +23,7 @@ Vagrant.configure("2") do |config|
 
       machine.vm.provider "virtualbox" do |vb|
         vb.name   = node[:name]
-        vb.memory = 4096
+        vb.memory = 3072
         vb.cpus   = 2
 
         FileUtils.mkdir_p(disk_dir)

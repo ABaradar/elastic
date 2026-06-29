@@ -1,0 +1,122 @@
+---
+# tasks/upgrade.yml
+# Rolling upgrade of a SINGLE Elasticsearch node, following the official
+# Elastic procedure. Intended to be run from a play with `serial: 1` so the
+# play visits one node at a time. The disable/enable shard-allocation calls are
+# cluster-wide and are issued against this node's local HTTP API.
+#
+# Per-node sequence:
+#   1. copy the target .deb (deb method only)
+#   2. disable shard allocation (cluster-wide)
+#   3. flush
+#   4. stop elasticsearch
+#   5. install the target package (in-place upgrade)
+#   6. start elasticsearch and wait for it to rejoin
+#   7. re-enable shard allocation
+#   8. wait for the cluster to return to green before the play moves on
+#
+# NOTE: a major upgrade is NOT reversible. Take a snapshot before running.
+
+- name: Set Elasticsearch API endpoint for this node
+  set_fact:
+    _es_api: "http://{{ ansible_host | default('localhost') }}:{{ es_http_port }}"
+
+- name: Copy target Elasticsearch deb to /tmp
+  copy:
+    src: "{{ es_deb_filename }}"
+    dest: "/tmp/{{ es_deb_filename }}"
+    mode: "0644"
+  when: es_install_method == 'deb' and es_deb_filename != ""
+
+- name: Wait for local Elasticsearch API to be available (pre-upgrade)
+  uri:
+    url: "{{ _es_api }}/_cluster/health"
+    method: GET
+    status_code: 200
+  register: _pre_health
+  retries: 30
+  delay: 5
+  until: _pre_health.status == 200
+
+- name: Disable shard allocation (cluster-wide)
+  uri:
+    url: "{{ _es_api }}/_cluster/settings"
+    method: PUT
+    body_format: json
+    body:
+      persistent:
+        cluster.routing.allocation.enable: "primaries"
+    status_code: 200
+
+- name: Flush indices to speed up shard recovery
+  uri:
+    url: "{{ _es_api }}/_flush"
+    method: POST
+    status_code: [200, 409]
+  failed_when: false
+
+- name: Stop Elasticsearch on this node
+  systemd:
+    name: elasticsearch
+    state: stopped
+
+- name: Install target Elasticsearch from local deb (in-place upgrade)
+  apt:
+    deb: "/tmp/{{ es_deb_filename }}"
+    state: present
+  when: es_install_method == 'deb'
+
+- name: Install target Elasticsearch from APT repo (in-place upgrade)
+  apt:
+    name: "elasticsearch={{ es_elasticsearch_version }}"
+    state: present
+    update_cache: yes
+  when: es_install_method == 'repo'
+
+- name: Start Elasticsearch on this node
+  systemd:
+    name: elasticsearch
+    enabled: yes
+    state: started
+    daemon_reload: yes
+
+- name: Wait for this node to rejoin (local API up, post-upgrade)
+  uri:
+    url: "{{ _es_api }}/_cluster/health"
+    method: GET
+    status_code: 200
+  register: _post_health
+  retries: 60
+  delay: 5
+  until: _post_health.status == 200
+
+- name: Re-enable shard allocation (cluster-wide)
+  uri:
+    url: "{{ _es_api }}/_cluster/settings"
+    method: PUT
+    body_format: json
+    body:
+      persistent:
+        cluster.routing.allocation.enable: null
+    status_code: 200
+
+- name: Wait for cluster to return to green before upgrading the next node
+  uri:
+    url: "{{ _es_api }}/_cluster/health?wait_for_status=green&timeout=120s"
+    method: GET
+    status_code: 200
+  register: _green
+  retries: 30
+  delay: 10
+  until: _green.json.status == 'green'
+
+- name: Query running Elasticsearch version on this node
+  uri:
+    url: "{{ _es_api }}/"
+    method: GET
+    status_code: 200
+  register: _es_root
+
+- name: Report upgraded version on this node
+  debug:
+    msg: "{{ inventory_hostname }} now running Elasticsearch {{ _es_root.json.version.number }}"

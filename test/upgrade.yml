@@ -1,0 +1,30 @@
+---
+# Rolling upgrade of the all-in-one test cluster from 8.19.x to 9.2.2.
+#
+# Run this AFTER site.yml has installed 8.19.x and the cluster is green:
+#   ansible-playbook upgrade.yml
+#
+# `serial: 1` makes the play visit one node at a time. For each node the role
+# disables shard allocation, flushes, stops the service, installs the 9.2.2 deb
+# in place, restarts, re-enables allocation, and waits for the cluster to go
+# green again before moving to the next node -> zero downtime.
+#
+# In the all-in-one topology every node is master-eligible, so node order does
+# not matter. `max_fail_percentage: 0` aborts the whole upgrade if any single
+# node fails to come back green, leaving the rest of the cluster untouched.
+#
+# WARNING: a major upgrade rewrites the data directory and is NOT reversible.
+# In production, snapshot the cluster first. For this throwaway test cluster
+# the only rollback is `vagrant destroy` + reprovision.
+
+- name: Rolling upgrade Elasticsearch 8.19.x -> 9.2.2 (all-in-one)
+  hosts: es_all_in_one
+  become: true
+  serial: 1
+  max_fail_percentage: 0
+  vars:
+    update_hosts: false
+    rolling_upgrade: true
+    es_deb_filename: elasticsearch-9.2.2-amd64.deb
+  roles:
+    - role: elasticsearch_cluster

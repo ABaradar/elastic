@@ -24,3 +24,7 @@
 - name: Configure node (render templates, owners, service)
   include_tasks: configure.yml
   when: es_node_type is defined
+
+- name: Rolling upgrade of this Elasticsearch node
+  include_tasks: upgrade.yml
+  when: rolling_upgrade | default(false)

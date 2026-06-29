@@ -20,7 +20,8 @@ templates.
 9. [JVM Heap Sizing](#9-jvm-heap-sizing)
 10. [Elasticsearch Configuration Template](#10-elasticsearch-configuration-template)
 11. [Node Types and `configure.yml`](#11-node-types-and-configureyml)
-12. [Safety and Operational Cautions](#12-safety-and-operational-cautions)
+12. [Rolling Upgrades (Major Version)](#12-rolling-upgrades-major-version)
+13. [Safety and Operational Cautions](#13-safety-and-operational-cautions)
 
 ---
 
@@ -59,7 +60,8 @@ Both topologies go through the same underlying task stages; what differs is the 
     │   ├── format_mount.yml           # Formats block device and mounts it
     │   ├── packages.yml               # Installs apt prerequisites + Elastic APT repo
     │   ├── install.yml                # Installs Elasticsearch (repo or local deb)
-    │   └── configure.yml              # Renders elasticsearch.yml and JVM options
+    │   ├── configure.yml              # Renders elasticsearch.yml and JVM options
+    │   └── upgrade.yml                # Rolling per-node upgrade (disable alloc, stop, install, wait green)
     └── templates/
         ├── elasticsearch.yml.j2       # Elasticsearch node configuration
         └── jvm_heap.options.j2        # JVM heap and GC options
@@ -81,7 +83,8 @@ tasks/main.yml
 ├── format_mount.yml       runs when: format_and_mount: true
 ├── packages.yml           runs when: packages_stage: true
 ├── install.yml            runs when: install_es: true
-└── configure.yml          runs when: es_node_type is defined
+├── configure.yml          runs when: es_node_type is defined
+└── upgrade.yml            runs when: rolling_upgrade: true
 ```
 
 ### Stage details
@@ -144,6 +147,12 @@ Gathers facts, computes JVM heap, renders templates, and starts the service. Beh
 `es_node_type`. See [Node Types and configure.yml](#11-node-types-and-configureyml) for full
 detail.
 
+#### `upgrade.yml` — Rolling per-node upgrade
+Runs only when `rolling_upgrade: true`. Performs the official Elastic rolling-upgrade procedure on
+a **single** node. It is meant to be driven by a play with `serial: 1` so the cluster is upgraded
+one node at a time with zero downtime. See [Rolling Upgrades](#12-rolling-upgrades-major-version)
+for the full procedure and constraints.
+
 ---
 
 ## 4. Variables Reference
@@ -196,6 +205,16 @@ as `vars:` in the playbook.
 |---|---|---|
 | `es_max_jvm_mb` | `30720` | Cap for the computed JVM heap in MB (~30 GB). The role will never recommend a heap larger than this value, regardless of available RAM. |
 | `es_tmpdir` | `"/tmp"` | Written as `-Djava.io.tmpdir` in the JVM options. |
+
+### Upgrade
+
+| Variable | Default | Description |
+|---|---|---|
+| `rolling_upgrade` | `false` | When `true`, the role runs `upgrade.yml` (rolling per-node upgrade) instead of a fresh install. Drive it from a play with `serial: 1`. |
+| `es_deb_filename` | `""` | For the `deb` method, set this to the **target** version's `.deb` in the upgrade play's `vars:` (e.g. `elasticsearch-9.2.2-amd64.deb`). |
+| `es_elasticsearch_version` | `"9.2.2"` | For the `repo` method, set this to the target version in the upgrade play's `vars:`. |
+
+See [Rolling Upgrades](#12-rolling-upgrades-major-version) for the full procedure.
 
 ---
 
@@ -532,7 +551,109 @@ changes to configuration take effect without manual intervention.
 
 ---
 
-## 12. Safety and Operational Cautions
+## 12. Rolling Upgrades (Major Version)
+
+The role can upgrade an existing cluster in place, one node at a time, with **zero downtime**.
+This is driven by `tasks/upgrade.yml` and gated by the `rolling_upgrade: true` flag. A reference
+playbook for the all-in-one topology lives at `test/upgrade.yml`.
+
+### Supported upgrade path (read first)
+
+Elasticsearch enforces a strict major-version upgrade path. **You cannot jump from an arbitrary
+8.x straight to 9.1+.** You must first be on the final 8.x minor (**8.19.x**), then upgrade to 9.x.
+
+| Current version | Target | Allowed directly? |
+|---|---|---|
+| 8.17.x or earlier | 9.x | ❌ — upgrade to 8.19.x first |
+| 8.18.x | 9.0.x | ✅ (but not 9.1+) |
+| **8.19.x** | **9.0 – 9.2** | ✅ |
+
+Other compatibility notes:
+- **Indices created in 7.x or earlier** must be reindexed, deleted, or archived before upgrading
+  to 9.x — incompatible indices block node startup.
+- The v1 legacy `_template` API is removed in 9.x; migrate to composable index templates first.
+- Plugins compiled for 8.x will not load on 9.x.
+- 8.x clients keep working against a 9.x cluster via REST API compatibility.
+
+### A major upgrade is NOT reversible
+
+A major upgrade rewrites the on-disk data directory format. **There is no downgrade** by
+reinstalling the old binary. Your only rollback is **snapshot → restore into a fresh old-version
+cluster**. Always take a snapshot before upgrading a real cluster.
+
+### What `upgrade.yml` does per node
+
+Run from a play with `serial: 1`, the role visits one node at a time and performs:
+
+| Step | Action |
+|---|---|
+| 1 | Copy the target `.deb` to `/tmp/` (deb method only) |
+| 2 | Wait for the local ES API to be reachable |
+| 3 | Disable cluster-wide shard allocation (`cluster.routing.allocation.enable: primaries`) |
+| 4 | Flush indices to speed up shard recovery |
+| 5 | Stop Elasticsearch on this node |
+| 6 | Install the target package in place (`apt` deb or pinned repo version) |
+| 7 | Start Elasticsearch and wait for the node to rejoin |
+| 8 | Re-enable shard allocation (reset to default) |
+| 9 | Wait for the cluster to return to **green** before the play moves to the next node |
+| 10 | Report the running version on the node |
+
+The disable/enable allocation calls are cluster-wide and are issued against the node's own HTTP
+API (bound to `es_network_host`). Because each node is upgraded only after the cluster is green
+again, and shards have replicas on the other nodes, the cluster keeps serving throughout.
+
+### Node order
+
+Upgrade **master-eligible nodes last**. In the all-in-one topology every node is master+data, so
+order does not matter and inventory order is fine. In the dedicated topology, upgrade data nodes
+first and master nodes last.
+
+### Running an upgrade
+
+Point the install inventory at the current (lower) version, then run a dedicated upgrade play that
+overrides the target version. Example (all-in-one, deb method):
+
+```yaml
+# upgrade.yml
+- name: Rolling upgrade Elasticsearch 8.19.x -> 9.2.2 (all-in-one)
+  hosts: es_all_in_one
+  become: true
+  serial: 1                  # one node at a time
+  max_fail_percentage: 0     # abort the whole run if any node fails to go green
+  vars:
+    update_hosts: false
+    rolling_upgrade: true
+    es_deb_filename: elasticsearch-9.2.2-amd64.deb   # the TARGET version
+  roles:
+    - role: elasticsearch_cluster
+```
+
+```bash
+ansible-playbook -i hosts.ini upgrade.yml
+```
+
+`max_fail_percentage: 0` combined with `serial: 1` means that if any single node fails to return
+to green within the timeout, the play aborts and the remaining nodes stay on the old version,
+giving you a chance to investigate before continuing. Because the deb-install step is idempotent
+(it is a no-op once a node is already on the target version), re-running the playbook after fixing
+a problem safely resumes the upgrade.
+
+### Verifying the result
+
+```bash
+# All nodes should report the target version
+curl -s "http://<node-ip>:9200/_cat/nodes?v=true&h=name,version,node.role"
+
+# Cluster should be green; any test data should be intact
+curl -s "http://<node-ip>:9200/_cluster/health?pretty"
+```
+
+> A full, reproducible upgrade test (install 8.19.17 → load data → rolling-upgrade to 9.2.2 on
+> three Vagrant VMs) is documented in [`test/README.md`](test/README.md).
+
+---
+
+## 13. Safety and Operational Cautions
 
 ### Disk formatting is destructive
 `format_mount.yml` will create a new filesystem on `es_data_disk` if no filesystem is detected
